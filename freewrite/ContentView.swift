@@ -891,6 +891,22 @@ struct ContentView: View {
         )
     }
 
+    var wordCount: Int {
+        var count = 0
+        text.enumerateSubstrings(in: text.startIndex..., options: [.byWords, .substringNotRequired]) { _, _, _, _ in
+            count += 1
+        }
+        return count
+    }
+
+    var characterCount: Int {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).count
+    }
+
+    var wordCountTitle: String {
+        wordCount == 1 ? "1 word" : "\(wordCount) words"
+    }
+
     func nextPlaceholder() -> String {
         Self.placeholderOptions.filter { $0 != placeholderText }.randomElement() ?? placeholderText
     }
@@ -1212,6 +1228,16 @@ struct ContentView: View {
                         
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
+                            if !isViewingVideoEntry {
+                                Text(wordCountTitle)
+                                    .foregroundColor(textColor)
+                                    .monospacedDigit()
+                                    .help("\(characterCount) characters")
+
+                                Text("•")
+                                    .foregroundColor(.gray)
+                            }
+
                             Button(timerButtonTitle) {
                                 let now = Date()
                                 if let lastClick = lastClickTime,
