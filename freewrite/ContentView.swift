@@ -395,7 +395,6 @@ struct ContentView: View {
     private func trashVideoAssets(for videoFilename: String) -> [TrashedItem] {
         thumbnailMemoryCache.removeObject(forKey: videoFilename as NSString)
 
-        // The managed directory goes to the Trash whole so video, thumbnail and transcript restore together
         let managedDirectory = getVideoEntryDirectory(for: videoFilename)
         let flatVideosURL = getVideosDirectory().appendingPathComponent(videoFilename)
         let rootVideosURL = getDocumentsDirectory().appendingPathComponent(videoFilename)
