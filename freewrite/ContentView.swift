@@ -905,7 +905,6 @@ struct ContentView: View {
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
                     .padding(.top, 40)
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .colorScheme(colorScheme)
                     .onAppear {
