@@ -160,6 +160,8 @@ struct ContentView: View {
     
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
     let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
+    private static let editorMaxWidth: CGFloat = 650
+    private static let editorSideMargin: CGFloat = 40
     private static let fallbackPlaceholder = "Begin writing"
     private static let placeholderRotationSeconds = 30
     private static let placeholderFadeDuration: TimeInterval = 0.8
@@ -966,7 +968,8 @@ struct ContentView: View {
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineSpacing(forFontSize: zoomedFontSize))
-                    .frame(maxWidth: 650)
+                    .frame(maxWidth: Self.editorMaxWidth * zoomScale)
+                    .padding(.horizontal, Self.editorSideMargin)
                     .padding(.top, 40)
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .colorScheme(colorScheme)
