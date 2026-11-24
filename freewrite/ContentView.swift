@@ -127,6 +127,7 @@ struct ContentView: View {
     @State private var hoveredTrashId: UUID? = nil
     @State private var hoveredExportId: UUID? = nil
     @State private var placeholderText: String = ""  // Add this line
+    @State private var placeholderIdleSeconds = 0
     @State private var isHoveringNewEntry = false
     @State private var isHoveringClock = false
     @State private var isHoveringHistory = false
@@ -159,16 +160,20 @@ struct ContentView: View {
     let availableFonts = NSFontManager.shared.availableFontFamilies
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
     let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
-    let placeholderOptions = [
-        "Begin writing",
-        "Pick a thought and go",
-        "Start typing",
-        "What's on your mind",
-        "Just start",
-        "Type your first thought",
-        "Start with one sentence",
-        "Just say it"
-    ]
+    private static let fallbackPlaceholder = "Begin writing"
+    private static let placeholderRotationSeconds = 30
+    private static let placeholderFadeDuration: TimeInterval = 0.8
+    private static let placeholderOptions: [String] = {
+        guard let url = Bundle.main.url(forResource: "placeholders", withExtension: "txt"),
+              let content = try? String(contentsOf: url, encoding: .utf8) else {
+            return [fallbackPlaceholder]
+        }
+        let lines = content
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? [fallbackPlaceholder] : lines
+    }()
     
     // Add file manager and save timer
     private let fileManager = FileManager.default
@@ -854,6 +859,10 @@ struct ContentView: View {
         }
     }
     
+    func nextPlaceholder() -> String {
+        Self.placeholderOptions.filter { $0 != placeholderText }.randomElement() ?? placeholderText
+    }
+
     var zoomedFontSize: CGFloat {
         fontSize * zoomScale
     }
@@ -914,7 +923,7 @@ struct ContentView: View {
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .colorScheme(colorScheme)
                     .onAppear {
-                        placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
+                        placeholderText = nextPlaceholder()
                         // Removed findSubview code which was causing errors
 
                         // Add keyboard monitor for backspace/delete keys
@@ -935,6 +944,8 @@ struct ContentView: View {
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: 40)
+                                    .id(placeholderText)
+                                    .transition(.opacity)
                             }
                         }, alignment: .topLeading
                     )
@@ -1809,6 +1820,7 @@ struct ContentView: View {
         }
         .focusedSceneValue(\.zoomScale, $zoomScale)
         .onChange(of: text) { _ in
+            placeholderIdleSeconds = 0
             // Save current entry when text changes
             if let currentId = selectedEntryId,
                let currentEntry = entries.first(where: { $0.id == currentId }),
@@ -1817,6 +1829,16 @@ struct ContentView: View {
             }
         }
         .onReceive(timer) { _ in
+            if text.isEmpty {
+                placeholderIdleSeconds += 1
+                if placeholderIdleSeconds >= Self.placeholderRotationSeconds {
+                    withAnimation(.easeInOut(duration: Self.placeholderFadeDuration)) {
+                        placeholderText = nextPlaceholder()
+                    }
+                    placeholderIdleSeconds = 0
+                }
+            }
+
             if timerIsRunning && timeRemaining > 0 {
                 timeRemaining -= 1
             } else if timeRemaining == 0 {
@@ -1952,8 +1974,8 @@ struct ContentView: View {
             updatePreviewText(for: newEntry)
         } else {
             text = ""
-            // Randomize placeholder text for new entry
-            placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
+            placeholderText = nextPlaceholder()
+            placeholderIdleSeconds = 0
             // Save the empty entry
             saveEntry(entry: newEntry)
         }
