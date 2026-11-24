@@ -38,10 +38,19 @@ struct ZoomScaleKey: FocusedValueKey {
     typealias Value = Binding<CGFloat>
 }
 
+struct ShowingFontPickerKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var zoomScale: Binding<CGFloat>? {
         get { self[ZoomScaleKey.self] }
         set { self[ZoomScaleKey.self] = newValue }
+    }
+
+    var showingFontPicker: Binding<Bool>? {
+        get { self[ShowingFontPickerKey.self] }
+        set { self[ShowingFontPickerKey.self] = newValue }
     }
 }
 
@@ -61,9 +70,18 @@ enum Zoom {
 
 struct ZoomCommands: Commands {
     @FocusedBinding(\.zoomScale) private var zoomScale
+    @FocusedBinding(\.showingFontPicker) private var showingFontPicker
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
+            Button("Fonts…") {
+                showingFontPicker = true
+            }
+            .keyboardShortcut("t", modifiers: .command)
+            .disabled(showingFontPicker == nil)
+
+            Divider()
+
             Button("Zoom In") {
                 if let zoomScale, let larger = Zoom.larger(than: zoomScale) {
                     self.zoomScale = larger

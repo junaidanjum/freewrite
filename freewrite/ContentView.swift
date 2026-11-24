@@ -98,7 +98,8 @@ struct ContentView: View {
     
     @State private var isFullscreen = false
     @State private var selectedFont: String = "Lato-Regular"
-    @State private var currentRandomFont: String = ""
+    @State private var showingFontPicker = false
+    @State private var isHoveringShuffleFont = false
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
@@ -157,7 +158,6 @@ struct ContentView: View {
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
-    let availableFonts = NSFontManager.shared.availableFontFamilies
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
     let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
     private static let fallbackPlaceholder = "Begin writing"
@@ -692,8 +692,8 @@ struct ContentView: View {
         }
     }
     
-    var randomButtonTitle: String {
-        return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
+    var moreFontsButtonTitle: String {
+        standardFonts.contains(selectedFont) ? "More…" : selectedFont
     }
 
     private func startVideoRecordingPreflight() {
@@ -859,6 +859,38 @@ struct ContentView: View {
         }
     }
     
+    // Font, size and zoom changes reflow the text; keep the line that was at the top of the view in place
+    private func keepingReadingPosition(_ change: () -> Void) {
+        guard let textView = (NSApp.mainWindow ?? NSApp.keyWindow)?.contentView?.findSubview(ofType: NSTextView.self),
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              textView.visibleRect.minY > 0 else {
+            change()
+            return
+        }
+
+        let containerOrigin = textView.textContainerOrigin
+        let topPoint = NSPoint(x: 0, y: textView.visibleRect.minY - containerOrigin.y)
+        let anchorIndex = layoutManager.characterIndex(for: topPoint, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+
+        change()
+
+        // SwiftUI applies the new font on its next update pass
+        DispatchQueue.main.async {
+            layoutManager.ensureLayout(for: textContainer)
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: anchorIndex)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            textView.scroll(NSPoint(x: 0, y: lineRect.minY + containerOrigin.y))
+        }
+    }
+
+    private func keepingReadingPosition<Value>(_ binding: Binding<Value>) -> Binding<Value> {
+        Binding(
+            get: { binding.wrappedValue },
+            set: { newValue in keepingReadingPosition { binding.wrappedValue = newValue } }
+        )
+    }
+
     func nextPlaceholder() -> String {
         Self.placeholderOptions.filter { $0 != placeholderText }.randomElement() ?? placeholderText
     }
@@ -988,7 +1020,7 @@ struct ContentView: View {
                                 Button(fontSizeButtonTitle) {
                                     if let currentIndex = fontSizes.firstIndex(of: fontSize) {
                                         let nextIndex = (currentIndex + 1) % fontSizes.count
-                                        fontSize = fontSizes[nextIndex]
+                                        keepingReadingPosition { fontSize = fontSizes[nextIndex] }
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -1008,7 +1040,7 @@ struct ContentView: View {
 
                                 Button {
                                     if let smaller = Zoom.smaller(than: zoomScale) {
-                                        zoomScale = smaller
+                                        keepingReadingPosition { zoomScale = smaller }
                                     }
                                 } label: {
                                     Image(systemName: "minus.magnifyingglass")
@@ -1030,7 +1062,7 @@ struct ContentView: View {
 
                                 Button {
                                     if let larger = Zoom.larger(than: zoomScale) {
-                                        zoomScale = larger
+                                        keepingReadingPosition { zoomScale = larger }
                                     }
                                 } label: {
                                     Image(systemName: "plus.magnifyingglass")
@@ -1054,8 +1086,7 @@ struct ContentView: View {
                                     .foregroundColor(.gray)
                                 
                                 Button("Lato") {
-                                    selectedFont = "Lato-Regular"
-                                    currentRandomFont = ""
+                                    keepingReadingPosition { selectedFont = "Lato-Regular" }
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
@@ -1073,8 +1104,7 @@ struct ContentView: View {
                                     .foregroundColor(.gray)
                                 
                                 Button("Arial") {
-                                    selectedFont = "Arial"
-                                    currentRandomFont = ""
+                                    keepingReadingPosition { selectedFont = "Arial" }
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
@@ -1092,8 +1122,7 @@ struct ContentView: View {
                                     .foregroundColor(.gray)
                                 
                                 Button("System") {
-                                    selectedFont = ".AppleSystemUIFont"
-                                    currentRandomFont = ""
+                                    keepingReadingPosition { selectedFont = ".AppleSystemUIFont" }
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
@@ -1111,8 +1140,7 @@ struct ContentView: View {
                                     .foregroundColor(.gray)
                                 
                                 Button("Serif") {
-                                    selectedFont = "Times New Roman"
-                                    currentRandomFont = ""
+                                    keepingReadingPosition { selectedFont = "Times New Roman" }
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
@@ -1129,16 +1157,42 @@ struct ContentView: View {
                                 Text("•")
                                     .foregroundColor(.gray)
                                 
-                                Button(randomButtonTitle) {
-                                    if let randomFont = availableFonts.randomElement() {
-                                        selectedFont = randomFont
-                                        currentRandomFont = randomFont
+                                Button {
+                                    if let family = FontPickerView.families.filter({ $0 != selectedFont }).randomElement() {
+                                        keepingReadingPosition { selectedFont = family }
                                     }
+                                } label: {
+                                    Image(systemName: "shuffle")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(isHoveringShuffleFont ? textHoverColor : textColor)
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
+                                .help("Shuffle font")
+                                .accessibilityLabel("Shuffle font")
                                 .onHover { hovering in
-                                    hoveredFont = hovering ? "Random" : nil
+                                    isHoveringShuffleFont = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+
+                                Button(moreFontsButtonTitle) {
+                                    showingFontPicker.toggle()
+                                }
+                                .buttonStyle(.plain)
+                                .lineLimit(1)
+                                .foregroundColor(hoveredFont == "More" ? textHoverColor : textColor)
+                                .help("Choose a font (⌘T)")
+                                .popover(isPresented: $showingFontPicker, arrowEdge: .top) {
+                                    FontPickerView(selectedFont: keepingReadingPosition($selectedFont)) {
+                                        showingFontPicker = false
+                                    }
+                                }
+                                .onHover { hovering in
+                                    hoveredFont = hovering ? "More" : nil
                                     isHoveringBottomNav = hovering
                                     if hovering {
                                         NSCursor.pointingHand.push()
@@ -1818,7 +1872,8 @@ struct ContentView: View {
                 clearVideoRecordingPreparationState()
             }
         }
-        .focusedSceneValue(\.zoomScale, $zoomScale)
+        .focusedSceneValue(\.zoomScale, keepingReadingPosition($zoomScale))
+        .focusedSceneValue(\.showingFontPicker, $showingFontPicker)
         .onChange(of: text) { _ in
             placeholderIdleSeconds = 0
             // Save current entry when text changes
@@ -2376,21 +2431,6 @@ struct ContentView: View {
 // Helper function to calculate line height
 func getLineHeight(font: NSFont) -> CGFloat {
     return font.ascender - font.descender + font.leading
-}
-
-// Add helper extension to find NSTextView
-extension NSView {
-    func findTextView() -> NSView? {
-        if self is NSTextView {
-            return self
-        }
-        for subview in subviews {
-            if let textView = subview.findTextView() {
-                return textView
-            }
-        }
-        return nil
-    }
 }
 
 // Add helper extension for finding subviews of a specific type
