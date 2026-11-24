@@ -105,7 +105,10 @@ struct ContentView: View {
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
+    @State private var isHoveringZoomOut = false
+    @State private var isHoveringZoomIn = false
     @State private var fontSize: CGFloat = 18
+    @State private var zoomScale: CGFloat = 1
     @State private var blinkCount = 0
     @State private var isBlinking = false
     @State private var opacity: Double = 1.0
@@ -851,10 +854,14 @@ struct ContentView: View {
         }
     }
     
-    var lineHeight: CGFloat {
-        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+    var zoomedFontSize: CGFloat {
+        fontSize * zoomScale
+    }
+
+    func lineSpacing(forFontSize size: CGFloat) -> CGFloat {
+        let font = NSFont(name: selectedFont, size: size) ?? .systemFont(ofSize: size)
         let defaultLineHeight = getLineHeight(font: font)
-        return (fontSize * 1.5) - defaultLineHeight
+        return (size * 1.5) - defaultLineHeight
     }
     
     var fontSizeButtonTitle: String {
@@ -897,11 +904,11 @@ struct ContentView: View {
                     // Show text editor for text entries
                     TextEditor(text: $text)
                     .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(selectedFont, size: fontSize))
+                    .font(.custom(selectedFont, size: zoomedFontSize))
                     .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
-                    .lineSpacing(lineHeight)
+                    .lineSpacing(lineSpacing(forFontSize: zoomedFontSize))
                     .frame(maxWidth: 650)
                     .padding(.top, 40)
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
@@ -924,7 +931,7 @@ struct ContentView: View {
                         ZStack(alignment: .topLeading) {
                             if text.isEmpty {
                                 Text(placeholderText)
-                                    .font(.custom(selectedFont, size: fontSize))
+                                    .font(.custom(selectedFont, size: zoomedFontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: 40)
@@ -984,7 +991,54 @@ struct ContentView: View {
                                         NSCursor.pop()
                                     }
                                 }
-                                
+
+                                Text("•")
+                                    .foregroundColor(.gray)
+
+                                Button {
+                                    if let smaller = Zoom.smaller(than: zoomScale) {
+                                        zoomScale = smaller
+                                    }
+                                } label: {
+                                    Image(systemName: "minus.magnifyingglass")
+                                        .foregroundColor(isHoveringZoomOut ? textHoverColor : textColor)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(Zoom.smaller(than: zoomScale) == nil)
+                                .help("Zoom Out (⌘−)")
+                                .accessibilityLabel("Zoom Out")
+                                .onHover { hovering in
+                                    isHoveringZoomOut = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+
+                                Button {
+                                    if let larger = Zoom.larger(than: zoomScale) {
+                                        zoomScale = larger
+                                    }
+                                } label: {
+                                    Image(systemName: "plus.magnifyingglass")
+                                        .foregroundColor(isHoveringZoomIn ? textHoverColor : textColor)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(Zoom.larger(than: zoomScale) == nil)
+                                .help("Zoom In (⌘+)")
+                                .accessibilityLabel("Zoom In")
+                                .onHover { hovering in
+                                    isHoveringZoomIn = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+
                                 Text("•")
                                     .foregroundColor(.gray)
                                 
@@ -1753,6 +1807,7 @@ struct ContentView: View {
                 clearVideoRecordingPreparationState()
             }
         }
+        .focusedSceneValue(\.zoomScale, $zoomScale)
         .onChange(of: text) { _ in
             // Save current entry when text changes
             if let currentId = selectedEntryId,
@@ -2220,7 +2275,7 @@ struct ContentView: View {
         
         // Configure text formatting attributes
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineHeight
+        paragraphStyle.lineSpacing = lineSpacing(forFontSize: fontSize)
         
         let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
         let textAttributes: [NSAttributedString.Key: Any] = [

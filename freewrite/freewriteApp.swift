@@ -28,6 +28,66 @@ struct freewriteApp: App {
         .defaultSize(width: 1100, height: 600)
         .windowToolbarStyle(.unifiedCompact)
         .windowResizability(.contentSize)
+        .commands {
+            ZoomCommands()
+        }
+    }
+}
+
+struct ZoomScaleKey: FocusedValueKey {
+    typealias Value = Binding<CGFloat>
+}
+
+extension FocusedValues {
+    var zoomScale: Binding<CGFloat>? {
+        get { self[ZoomScaleKey.self] }
+        set { self[ZoomScaleKey.self] = newValue }
+    }
+}
+
+enum Zoom {
+    // Matches Apple Notes: 4 steps down to 50%, 8 steps up to 300%
+    static let levels: [CGFloat] = [0.5, 0.625, 0.75, 0.875, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3]
+    static let actualSize: CGFloat = 1
+
+    static func larger(than scale: CGFloat) -> CGFloat? {
+        levels.first { $0 > scale }
+    }
+
+    static func smaller(than scale: CGFloat) -> CGFloat? {
+        levels.last { $0 < scale }
+    }
+}
+
+struct ZoomCommands: Commands {
+    @FocusedBinding(\.zoomScale) private var zoomScale
+
+    var body: some Commands {
+        CommandGroup(before: .toolbar) {
+            Button("Zoom In") {
+                if let zoomScale, let larger = Zoom.larger(than: zoomScale) {
+                    self.zoomScale = larger
+                }
+            }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(zoomScale.flatMap(Zoom.larger) == nil)
+
+            Button("Zoom Out") {
+                if let zoomScale, let smaller = Zoom.smaller(than: zoomScale) {
+                    self.zoomScale = smaller
+                }
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(zoomScale.flatMap(Zoom.smaller) == nil)
+
+            Button("Actual Size") {
+                zoomScale = Zoom.actualSize
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(zoomScale.map { $0 == Zoom.actualSize } ?? true)
+
+            Divider()
+        }
     }
 }
 
