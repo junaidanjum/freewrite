@@ -69,6 +69,16 @@ struct HumanEntry: Identifiable {
     }
 }
 
+struct TrashedItem {
+    let originalURL: URL
+    let trashedURL: URL?
+}
+
+struct TrashedEntry {
+    let entry: HumanEntry
+    let items: [TrashedItem]
+}
+
 struct HeartEmoji: Identifiable {
     let id = UUID()
     var position: CGPoint
@@ -125,6 +135,9 @@ struct ContentView: View {
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
     @State private var didCopyTranscript: Bool = false
+    @State private var lastTrashedEntry: TrashedEntry? = nil
+    @State private var isHoveringUndoTrash = false
+    private let undoTrashDuration: TimeInterval = 8
     @State private var selectedVideoHasTranscript = false
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
@@ -379,32 +392,29 @@ struct ContentView: View {
         return generated
     }
 
-    private func deleteVideoAssets(for videoFilename: String) {
+    private func trashVideoAssets(for videoFilename: String) -> [TrashedItem] {
         thumbnailMemoryCache.removeObject(forKey: videoFilename as NSString)
 
+        // The managed directory goes to the Trash whole so video, thumbnail and transcript restore together
         let managedDirectory = getVideoEntryDirectory(for: videoFilename)
-        let managedVideoURL = managedDirectory.appendingPathComponent(videoFilename)
-        let managedThumbnailURL = managedDirectory.appendingPathComponent("thumbnail.jpg")
-        let managedTranscriptURL = managedDirectory.appendingPathComponent("transcript.md")
         let flatVideosURL = getVideosDirectory().appendingPathComponent(videoFilename)
         let rootVideosURL = getDocumentsDirectory().appendingPathComponent(videoFilename)
 
-        let candidateURLs = [managedVideoURL, managedThumbnailURL, managedTranscriptURL, flatVideosURL, rootVideosURL]
-        for url in candidateURLs where fileManager.fileExists(atPath: url.path) {
+        var trashedItems: [TrashedItem] = []
+        for url in [managedDirectory, flatVideosURL, rootVideosURL] where fileManager.fileExists(atPath: url.path) {
             do {
-                try fileManager.removeItem(at: url)
+                trashedItems.append(try trashItem(at: url))
             } catch {
-                print("Error deleting video asset \(url.lastPathComponent): \(error)")
+                print("Error moving video asset \(url.lastPathComponent) to Trash: \(error)")
             }
         }
+        return trashedItems
+    }
 
-        if fileManager.fileExists(atPath: managedDirectory.path) {
-            do {
-                try fileManager.removeItem(at: managedDirectory)
-            } catch {
-                print("Error deleting video entry directory: \(error)")
-            }
-        }
+    private func trashItem(at url: URL) throws -> TrashedItem {
+        var resultingURL: NSURL?
+        try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
+        return TrashedItem(originalURL: url, trashedURL: resultingURL as URL?)
     }
 
     private func loadTranscriptText(for videoFilename: String) -> String? {
@@ -1636,6 +1646,8 @@ struct ContentView: View {
                                                                 .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
                                                         }
                                                         .buttonStyle(.plain)
+                                                        .help("Move entry to Trash")
+                                                        .accessibilityLabel("Move entry to Trash")
                                                         .onHover { hovering in
                                                             withAnimation(.easeInOut(duration: 0.2)) {
                                                                 hoveredTrashId = hovering ? entry.id : nil
@@ -1682,6 +1694,33 @@ struct ContentView: View {
                         }
                     }
                     .scrollIndicators(.never)
+
+                    if lastTrashedEntry != nil {
+                        Divider()
+
+                        HStack {
+                            Text("Moved to Trash")
+                                .foregroundColor(textColor)
+                            Spacer()
+                            Button("Undo") {
+                                undoLastTrash()
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringUndoTrash ? textHoverColor : textColor)
+                            .help("Restore the deleted entry")
+                            .onHover { hovering in
+                                isHoveringUndoTrash = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                        }
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
                 }
                 .frame(width: 200)
                 .background(Color(colorScheme == .light ? .white : NSColor.black))
@@ -2015,19 +2054,19 @@ struct ContentView: View {
     }
 
     private func deleteEntry(entry: HumanEntry) {
-        // Delete the file from the filesystem
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
         do {
-            try fileManager.removeItem(at: fileURL)
-            print("Successfully deleted file: \(entry.filename)")
+            var trashedItems = [try trashItem(at: fileURL)]
+            print("Moved file to Trash: \(entry.filename)")
 
-            // If this is a video entry, also delete the video file
             if let videoFilename = resolvedVideoFilename(for: entry) {
-                deleteVideoAssets(for: videoFilename)
-                print("Successfully deleted video assets: \(videoFilename)")
+                trashedItems += trashVideoAssets(for: videoFilename)
+                print("Moved video assets to Trash: \(videoFilename)")
             }
+
+            showUndoTrash(for: TrashedEntry(entry: entry, items: trashedItems))
 
             // Remove the entry from the entries array
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
@@ -2048,6 +2087,49 @@ struct ContentView: View {
         } catch {
             print("Error deleting file: \(error)")
         }
+    }
+
+    private func showUndoTrash(for trashedEntry: TrashedEntry) {
+        lastTrashedEntry = trashedEntry
+        let trashedId = trashedEntry.entry.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + undoTrashDuration) {
+            // A newer delete replaces the notice and owns its own timer
+            if lastTrashedEntry?.entry.id == trashedId {
+                lastTrashedEntry = nil
+            }
+        }
+    }
+
+    private func undoLastTrash() {
+        guard let trashedEntry = lastTrashedEntry else {
+            return
+        }
+        lastTrashedEntry = nil
+
+        var restoredEntryFile = false
+        for item in trashedEntry.items {
+            guard let trashedURL = item.trashedURL, fileManager.fileExists(atPath: trashedURL.path) else {
+                print("Cannot restore \(item.originalURL.lastPathComponent): no longer in Trash")
+                continue
+            }
+            do {
+                try fileManager.moveItem(at: trashedURL, to: item.originalURL)
+                if item.originalURL.lastPathComponent == trashedEntry.entry.filename {
+                    restoredEntryFile = true
+                }
+            } catch {
+                print("Error restoring \(item.originalURL.lastPathComponent): \(error)")
+            }
+        }
+
+        guard restoredEntryFile, !entries.contains(where: { $0.id == trashedEntry.entry.id }) else {
+            return
+        }
+
+        let insertIndex = entries.firstIndex(where: { isEntryNewer(trashedEntry.entry, than: $0) }) ?? entries.count
+        entries.insert(trashedEntry.entry, at: insertIndex)
+        selectedEntryId = trashedEntry.entry.id
+        loadEntry(entry: trashedEntry.entry)
     }
     
     // Extract a title from entry content for PDF export
